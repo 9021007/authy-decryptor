@@ -9,7 +9,8 @@ const contents = JSON.parse(
 ).authenticator_tokens.filter((t) => t.encrypted_seed !== undefined);
 
 // The IV is static and equals 16 NULL bytes
-const IV = Buffer.from("00000000000000000000000000000000", "hex");
+let IV = Buffer.from("00000000000000000000000000000000", "hex");
+const defaultIV = "00000000000000000000000000000000";
 
 // Obtain your backup key from the environment variable
 const backupKey = process.env.BACKUP_KEY;
@@ -20,9 +21,10 @@ const backupKey = process.env.BACKUP_KEY;
  * @param {String} salt Account salt
  * @returns {String} Decrypted seed
  */
-function decryptSync(seed, salt) {
+function decryptSync(seed, salt, iiv) {
   // Authy uses PBKDF2 with PKCS5 padding and 100,000 iterations of SHA1.
   // Here, we derive the key from the backup key and the account's salt
+  IV = Buffer.from(iiv, "hex");
   const key = pbkdf2Sync(backupKey, salt, 100000, 32, "sha1");
 
   // Then, we decrypt the seed using AES-256-CBC with the derived key and static IV
@@ -52,7 +54,12 @@ let tobewritten = {
 // Iterate over each token and decrypt the seed phrase, then output it to stdout, as well as the BitWarden JSON format
 // along with the token's name and original name
 for (const token of contents) {
-  const decrypted = decryptSync(token.encrypted_seed, token.salt);
+
+  if (token.unique_iv === undefined) {
+    token.unique_iv = defaultIV;
+  }
+
+  const decrypted = decryptSync(token.encrypted_seed, token.salt, token.unique_iv);
   console.log(`${token.name} (${token.original_name})\t ${decrypted}`);
   fs.appendFileSync('authyout.txt', `${token.name} (${token.original_name})\t ${decrypted}\n`);
   tobewritten.items.push({
